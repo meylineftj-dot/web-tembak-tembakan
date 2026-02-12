@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Survival Shooter Mobile</title>
+<style>
+body {
+    margin: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #111;
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+}
+canvas {
+    display: block;
+    background: #222;
+    border: 2px solid #fff;
+}
+/* Lobby */
+#lobby {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 10;
+    text-align: center;
+}
+#lobby h1 {
+    font-size: 50px;
+    font-weight: bold;
+    margin: 0;
+    color: #00ffcc;
+    text-shadow: 2px 2px 10px #000;
+}
+#lobby p {
+    font-size: 18px;
+    margin: 10px 0 30px;
+    color: #fff;
+}
+#lobby button {
+    padding: 12px 30px;
+    font-size: 20px;
+    cursor: pointer;
+    background: #00ffcc;
+    color: #111;
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 5px 15px rgba(0,255,204,0.4);
+    transition: all 0.3s ease;
+}
+#lobby button:hover {
+    transform: scale(1.1);
+    box-shadow: 0 8px 20px rgba(0,255,204,0.7);
+}
+/* HUD */
+#hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.5);
+    padding: 8px 15px;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #00ffcc;
+    z-index: 5;
+    text-align: left;
+    box-shadow: 0 0 8px #00ffcc;
+}
+/* Level Up */
+#levelUpText {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(1);
+    font-size: 50px;
+    font-weight: bold;
+    color: yellow;
+    text-shadow: 0 0 20px #ff0;
+    opacity: 0;
+    z-index: 20;
+    pointer-events: none;
+    transition: transform 1s ease, opacity 1s ease;
+}
+/* Flash saat nyawa hilang */
+#flash {
+    position: absolute;
+    top:0; left:0;
+    width: 100%; height: 100%;
+    background: red;
+    opacity: 0;
+    z-index: 15;
+    pointer-events:none;
+    transition: opacity 0.2s;
+}
+</style>
+</head>
+<body>
+
+<div id="lobby">
+    <h1>Survival Shooter</h1>
+    <p>Bertahan dari gelombang musuh hingga Level 10!</p>
+    <button id="startBtn">Mulai Game</button>
+</div>
+
+<div id="hud" style="display:none;">Score: 0<br>Level: 1<br>Nyawa: ❤️❤️❤️</div>
+<div id="levelUpText">LEVEL UP!</div>
+<div id="flash"></div>
+
+<canvas id="gameCanvas" width="400" height="600"></canvas>
+
+<!-- Musik latar -->
+<audio id="bgMusic" loop>
+    <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
+</audio>
+<!-- Sound tembak -->
+<audio id="shootSound">
+    <source src="https://freesound.org/data/previews/320/320655_5260876-lq.mp3" type="audio/mpeg">
+</audio>
+<!-- Sound level up -->
+<audio id="levelSound">
+    <source src="https://freesound.org/data/previews/331/331912_3248244-lq.mp3" type="audio/mpeg">
+</audio>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const lobby = document.getElementById('lobby');
+const startBtn = document.getElementById('startBtn');
+const bgMusic = document.getElementById('bgMusic');
+const shootSound = document.getElementById('shootSound');
+const levelSound = document.getElementById('levelSound');
+const hud = document.getElementById('hud');
+const levelUpText = document.getElementById('levelUpText');
+const flash = document.getElementById('flash');
+
+let gameStarted = false;
+let isLevelUp = false;
+
+const player = { x: canvas.width/2, y: canvas.height/2, radius: 12, speed: 4, color: 'blue' };
+const bullets = [];
+const enemies = [];
+const particles = [];
+let keys = {};
+let mouse = { x:0, y:0 };
+let score = 0;
+let level = 1;
+const maxLevel = 10;
+let lives = 3;
+
+startBtn.addEventListener('click', () => {
+    lobby.style.display = 'none';
+    hud.style.display = 'block';
+    bgMusic.play();
+    gameStarted = true;
+    gameLoop();
+});
+
+document.addEventListener('keydown', e => keys[e.key] = true);
+document.addEventListener('keyup', e => keys[e.key] = false);
+canvas.addEventListener('click', shoot);
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+});
+
+function shoot() {
+    if(!gameStarted || isLevelUp) return;
+    const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+    bullets.push({ x: player.x, y: player.y, radius: 4, dx: Math.cos(angle)*8, dy: Math.sin(angle)*8 });
+    shootSound.currentTime = 0;
+    shootSound.play();
+}
+
+function spawnEnemy() {
+    if(level > maxLevel) return;
+    const edge = Math.floor(Math.random() * 4);
+    let x, y;
+    if(edge === 0) { x=0; y=Math.random()*canvas.height; }
+    else if(edge===1){x=canvas.width;y=Math.random()*canvas.height;}
+    else if(edge===2){x=Math.random()*canvas.width;y=0;}
+    else {x=Math.random()*canvas.width;y=canvas.height;}
+
+    let enemyType = {};
+    if(level <= 3){ enemyType = {radius:15, speed:1.5, color:'red'}; }
+    else if(level <= 6){ enemyType = {radius:18, speed:2, color:'orange'}; }
+    else{ enemyType = {radius:22, speed:2.5, color:'purple'}; }
+
+    enemies.push({ x:x, y:y, radius:enemyType.radius, speed:enemyType.speed, color:enemyType.color });
+}
+setInterval(()=>{ if(gameStarted && !isLevelUp) spawnEnemy(); }, 2000);
+
+function updateHUD(){
+    let hearts = '❤️'.repeat(lives);
+    hud.innerHTML = `Score: ${score}<br>Level: ${level}<br>Nyawa: ${hearts}`;
+}
+
+function createParticles(x,y,color){
+    for(let i=0;i<10;i++){
+        particles.push({
+            x:x, y:y,
+            dx:(Math.random()-0.5)*4,
+            dy:(Math.random()-0.5)*4,
+            radius:Math.random()*3+1,
+            color: color
+        });
+    }
+}
+
+function updateParticles(){
+    for(let i=particles.length-1;i>=0;i--){
+        const p = particles[i];
+        p.x += p.dx; p.y += p.dy;
+        p.radius *= 0.95;
+        if(p.radius<0.5) particles.splice(i,1);
+    }
+}
+
+function flashRed(){
+    flash.style.opacity = '0.6';
+    setTimeout(()=>{ flash.style.opacity='0'; }, 100);
+}
+
+function update() {
+    if(!isLevelUp){
+        if(keys['ArrowUp'] || keys['w']) player.y -= player.speed;
+        if(keys['ArrowDown'] || keys['s']) player.y += player.speed;
+        if(keys['ArrowLeft'] || keys['a']) player.x -= player.speed;
+        if(keys['ArrowRight'] || keys['d']) player.x += player.speed;
+
+        player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
+        player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+
+        for(let i=bullets.length-1;i>=0;i--){
+            const b=bullets[i]; b.x+=b.dx;b.y+=b.dy;
+            if(b.x<0||b.x>canvas.width||b.y<0||b.y>canvas.height) bullets.splice(i,1);
+        }
+
+        for(let i=enemies.length-1;i>=0;i--){
+            const e=enemies[i];
+            const angle = Math.atan2(player.y-e.y, player.x-e.x);
+            e.x += Math.cos(angle) * e.speed;
+            e.y += Math.sin(angle) * e.speed;
+
+            // Tabrakan dengan player
+            if(Math.hypot(player.x-e.x, player.y-e.y)<player.radius+e.radius){
+                enemies.splice(i,1);
+                lives -=1;
+                flashRed();
+                if(lives <=0){
+                    bgMusic.pause();
+                    alert(`Game Over! Skor: ${score} | Level: ${level}`);
+                    document.location.reload();
+                }
+            }
+
+            // Tabrakan dengan peluru
+            for(let j=bullets.length-1;j>=0;j--){
+                const b=bullets[j];
+                if(Math.hypot(b.x-e.x,b.y-e.y)<b.radius+e.radius){
+                    enemies.splice(i,1);
+                    bullets.splice(j,1);
+                    score+=1;
+                    createParticles(e.x,e.y,e.color);
+
+                    if(score % 25 === 0 && level < maxLevel){
+                        levelUp();
+                    }
+                    if(level === maxLevel && score >= maxLevel*25){
+                        bgMusic.pause();
+                        alert(`Selamat! Kamu Menang! Skor: ${score}`);
+                        document.location.reload();
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    updateParticles();
+    updateHUD();
+}
+
+function levelUp(){
+    isLevelUp = true;
+    level +=1;
+    levelSound.currentTime=0;
+    levelSound.play();
+
+    levelUpText.style.opacity = '1';
+    levelUpText.style.transform = 'translate(-50%, -50%) scale(1.5)';
+    setTimeout(()=>{ levelUpText.style.transform = 'translate(-50%, -50%) scale(1)'; }, 500);
+    setTimeout(()=>{ levelUpText.style.opacity = '0'; isLevelUp=false; }, 3000);
+}
+
+function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = player.color; ctx.beginPath(); ctx.arc(player.x,player.y,player.radius,0,Math.PI*2); ctx.fill();
+    bullets.forEach(b=>{ctx.fillStyle='yellow'; ctx.beginPath(); ctx.arc(b.x,b.y,b.radius,0,Math.PI*2); ctx.fill();});
+    enemies.forEach(e=>{ctx.fillStyle=e.color; ctx.beginPath(); ctx.arc(e.x,e.y,e.radius,0,Math.PI*2); ctx.fill();});
+    particles.forEach(p=>{ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(p.x,p.y,p.radius,0,Math.PI*2); ctx.fill();});
+}
+
+function gameLoop() {
+    if(!gameStarted) return;
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+</script>
+</body>
+</html>
