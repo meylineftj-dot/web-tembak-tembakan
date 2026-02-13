@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Game Survival Luar Angkasa</title>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    canvas { display: block; margin: 0 auto; background: black; }
+    #score, #levelMessage { 
+      color: white; position: absolute; font-size: 20px;
+    }
+    #score { top: 10px; left: 10px; }
+    #levelMessage { top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 40px; display: none; text-align: center; }
+    #lobby {
+      position: absolute; top:0; left:0; width:100%; height:100%;
+      display:flex; align-items:center; justify-content:center; flex-direction:column;
+      color:white; font-size:30px;
+      overflow:hidden;
+    }
+    #lobbyText {
+      text-align:center;
+      font-size:40px; font-weight:bold;
+      text-shadow: 2px 2px 5px #00aaff;
+    }
+    #startBtn {
+      margin-top:30px; padding:15px 30px; font-size:24px; cursor:pointer;
+      border:none; background:#00aaff; color:white; border-radius:10px;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+      transition: 0.3s;
+    }
+    #startBtn:hover { background:#0088cc; transform:scale(1.05); }
+  </style>
+</head>
+<body>
+  <div id="lobby">
+    <div id="lobbyText">Game Survival Luar Angkasa<br>by Lutfi</div>
+    <button id="startBtn">Mulai Game</button>
+    <canvas id="lobbyCanvas"></canvas>
+  </div>
+
+  <div id="score">Skor: 0</div>
+  <div id="levelMessage"></div>
+
+  <!-- Musik dan efek -->
+  <audio id="bgMusic" loop>
+    <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
+  </audio>
+  <audio id="laserSound">
+    <source src="https://freesound.org/data/previews/320/320181_5260872-lq.mp3" type="audio/mpeg">
+  </audio>
+  <audio id="explosionSound">
+    <source src="https://freesound.org/data/previews/178/178868_285997-lq.mp3" type="audio/mpeg">
+  </audio>
+
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+    // Canvas game
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // Canvas lobi
+    const lobbyCanvas = document.getElementById('lobbyCanvas');
+    const lobbyCtx = lobbyCanvas.getContext('2d');
+    lobbyCanvas.width = window.innerWidth;
+    lobbyCanvas.height = window.innerHeight;
+    lobbyCanvas.style.position = "absolute";
+    lobbyCanvas.style.top = "0";
+    lobbyCanvas.style.left = "0";
+    lobbyCanvas.style.zIndex = "-1";
+
+    const bgMusic = document.getElementById('bgMusic');
+    const laserSound = document.getElementById('laserSound');
+    const explosionSound = document.getElementById('explosionSound');
+
+    const lobby = document.getElementById('lobby');
+    const startBtn = document.getElementById('startBtn');
+
+    let gameStarted = false;
+
+    // Pemain
+    const player = { x: canvas.width/2, y: canvas.height-100, width:50, height:50, speed:7 };
+    let asteroids = [], asteroidSpeed=3, spawnRate=100, score=0;
+    let level=1, maxLevel=10, leveling=false, gameFinished=false;
+
+    // Bintang background untuk game
+    const stars = [];
+    for(let i=0;i<150;i++){
+      stars.push({x: Math.random()*canvas.width, y: Math.random()*canvas.height, size: Math.random()*2, speed: Math.random()*1+0.5});
+    }
+
+    // Bintang background untuk lobi
+    const lobbyStars = [];
+    for(let i=0;i<100;i++){
+      lobbyStars.push({x: Math.random()*canvas.width, y: Math.random()*canvas.height, size: Math.random()*2, speed: Math.random()*0.5+0.2});
+    }
+
+    // Ledakan animasi
+    const explosions = [];
+
+    // Kontrol
+    let keys = {};
+    let touchX = null;
+    window.addEventListener('keydown', e => { 
+      keys[e.key] = true; 
+      if(e.key===" " && gameStarted){ 
+        laserSound.currentTime=0; laserSound.play();
+      }
+    });
+    window.addEventListener('keyup', e=>keys[e.key]=false);
+    canvas.addEventListener('touchstart', e=>touchX=e.touches[0].clientX);
+    canvas.addEventListener('touchmove', e=>{ e.preventDefault(); touchX=e.touches[0].clientX; }, {passive:false});
+
+    // Tombol mulai
+    startBtn.addEventListener('click', ()=>{
+      lobby.style.display='none';
+      gameStarted = true;
+      bgMusic.play();
+    });
+
+    // Fungsi bintang
+    function updateStars(starArray){
+      starArray.forEach(s=>{
+        s.y+=s.speed;
+        if(s.y>canvas.height) s.y=0;
+      });
+    }
+    function drawStars(starArray,ctx){
+      ctx.fillStyle='white';
+      starArray.forEach(s=>{
+        ctx.beginPath();
+        ctx.arc(s.x,s.y,s.size,0,Math.PI*2);
+        ctx.fill();
+      });
+    }
+
+    function spawnAsteroid() {
+      const size = Math.random()*40+20;
+      const x = Math.random()*(canvas.width-size);
+      asteroids.push({x,y:-size,width:size,height:size});
+    }
+
+    function showLevelMessage(msg){
+      const levelMessage = document.getElementById('levelMessage');
+      levelMessage.innerText = msg;
+      levelMessage.style.display='block';
+      setTimeout(()=>{ levelMessage.style.display='none'; leveling=false; },3000);
+    }
+
+    function updateLevel(){
+      if(gameFinished||leveling) return;
+      const newLevel = Math.min(Math.floor(score/25)+1,maxLevel);
+      if(newLevel>level){
+        level=newLevel;
+        leveling=true;
+        if(level<maxLevel){
+          asteroidSpeed+=0.5;
+          spawnRate=Math.max(20,spawnRate-10);
+          showLevelMessage("Level "+level);
+        } else if(level===maxLevel){
+          gameFinished=true;
+          bgMusic.pause();
+          showLevelMessage("Level 10\nFinish! Kamu Menang!\nSkor: "+score);
+        }
+      }
+    }
+
+    function updateGame(){
+      if(!gameStarted||gameFinished) return;
+
+      // Gerak pemain
+      if(keys['ArrowLeft'] && player.x>0) player.x-=player.speed;
+      if(keys['ArrowRight'] && player.x+player.width<canvas.width) player.x+=player.speed;
+      if(touchX!==null){
+        player.x = touchX - player.width/2;
+        if(player.x<0) player.x=0;
+        if(player.x+player.width>canvas.width) player.x=canvas.width-player.width;
+      }
+
+      if(!leveling && Math.random()<1/spawnRate) spawnAsteroid();
+
+      asteroids.forEach((a,index)=>{
+        a.y+=asteroidSpeed;
+        if(player.x<a.x+a.width && player.x+player.width>a.x && player.y<a.y+a.height && player.y+player.height>a.y){
+          bgMusic.pause();
+          explosionSound.currentTime=0; explosionSound.play();
+          explosions.push({x:player.x+player.width/2,y:player.y+player.height/2,radius:0,maxRadius:50});
+          alert("Game Over! Skor kamu: "+score);
+          document.location.reload();
+        }
+        if(a.y>canvas.height){
+          asteroids.splice(index,1);
+          explosionSound.currentTime=0; explosionSound.play();
+          explosions.push({x:a.x+a.width/2,y:a.y+a.height/2,radius:0,maxRadius:a.width});
+          score+=1;
+          document.getElementById('score').innerText='Skor: '+score;
+          updateLevel();
+        }
+      });
+
+      updateStars(stars);
+      explosions.forEach((e,i)=>{ e.radius+=2; if(e.radius>e.maxRadius) explosions.splice(i,1); });
+    }
+
+    function drawGame(){
+      ctx.fillStyle='black'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      drawStars(stars,ctx);
+
+      // Pesawat
+      ctx.fillStyle='white';
+      ctx.beginPath();
+      ctx.moveTo(player.x+player.width/2,player.y);
+      ctx.lineTo(player.x,player.y+player.height);
+      ctx.lineTo(player.x+player.width,player.y+player.height);
+      ctx.closePath();
+      ctx.fill();
+
+      // Asteroid
+      ctx.fillStyle='gray';
+      asteroids.forEach(a=>{ ctx.beginPath(); ctx.arc(a.x+a.width/2,a.y+a.height/2,a.width/2,0,Math.PI*2); ctx.fill(); });
+
+      // Ledakan
+      ctx.fillStyle='orange';
+      explosions.forEach(e=>{ ctx.beginPath(); ctx.arc(e.x,e.y,e.radius,0,Math.PI*2); ctx.fill(); });
+    }
+
+    function drawLobby(){
+      lobbyCtx.clearRect(0,0,lobbyCanvas.width,lobbyCanvas.height);
+      drawStars(lobbyStars,lobbyCtx);
+      updateStars(lobbyStars);
+    }
+
+    function gameLoop(){
+      if(!gameStarted) drawLobby();
+      else { updateGame(); drawGame(); }
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>
